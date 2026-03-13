@@ -13,7 +13,7 @@
 
   **Naming Convention:** All resources follow the pattern:
 
-  teleios---
+  teleios-<your-first-name>-<environment>-<resource>
 
   Examples: `teleios-light-dev-vpc`, `teleios-light-prod-eks`
 
@@ -36,14 +36,12 @@
 
   ### Architecture Layers
 
-  | Layer      | Services                                                        |
-  |------------|-----------------------------------------------------------------|
+  | Layer      | Services |
+  |-------     |----------|
   | Networking | VPC, Public/Private Subnets, NAT Gateway, ALB, Security Groups |
-  | Compute    | EKS Cluster with Managed Node Groups + EC2 Auto Scaling        |
-  | Data       | RDS PostgreSQL, ElastiCache Redis                               |
-  | Storage    | S3 Buckets with versioning and encryption                       |
-
-  ---
+  | Compute    | EKS Cluster with Managed Node Groups + EC2 Auto Scaling |
+  | Data       | RDS PostgreSQL, ElastiCache Redis |
+  | Storage    | S3 Buckets with versioning and encryption |
 
   ## Modules
 
