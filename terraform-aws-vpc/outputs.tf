@@ -13,17 +13,19 @@ output "vpc_cidr" {
 }
 
 # --- Public Subnet IDs ---
+# for_each returns a map - values() converts it to a list
 # Used by EKS ALB and NAT Gateway
 output "public_subnet_ids" {
   description = "List of public subnet IDs"
-  value       = aws_subnet.public[*].id
+  value       = values(aws_subnet.public)[*].id
 }
 
 # --- Private Subnet IDs ---
+# for_each returns a map - values() converts it to a list
 # Used by EKS nodes, RDS, Redis and EC2
 output "private_subnet_ids" {
   description = "List of private subnet IDs"
-  value       = aws_subnet.private[*].id
+  value       = values(aws_subnet.private)[*].id
 }
 
 # --- Internet Gateway ID ---
@@ -33,8 +35,8 @@ output "internet_gateway_id" {
 }
 
 # --- NAT Gateway IDs ---
+# for_each returns a map - values() converts it to a list
 output "nat_gateway_ids" {
   description = "List of NAT Gateway IDs"
-  value       = aws_nat_gateway.this[*].id
+  value       = values(aws_nat_gateway.this)[*].id
 }
-

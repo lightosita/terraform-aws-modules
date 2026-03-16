@@ -1,7 +1,19 @@
+
+
 # --- Locals (Reusable computed names) ---
-# DRY principle - define once, use everywhere
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+
+  # Convert lists to maps for for_each - maps subnets to their AZ
+  public_subnet_map  = zipmap(var.public_subnet_cidrs, var.availability_zones)
+  private_subnet_map = zipmap(var.private_subnet_cidrs, var.availability_zones)
+
+  # For NAT gateway - map AZs to public subnet CIDRs
+  nat_gateway_map = var.enable_nat_gateway ? (
+    var.single_nat_gateway
+    ? { "single" = var.public_subnet_cidrs[0] }
+    : zipmap(var.availability_zones, var.public_subnet_cidrs)
+  ) : {}
 }
 
 # --- VPC (The Compound) ---
@@ -26,18 +38,18 @@ resource "aws_internet_gateway" "this" {
 }
 
 # --- Public Subnets ---
-# map_public_ip_on_launch = true means resources get a public IP automatically
+# for_each uses CIDR as key - stable identity, safe to add/remove subnets
 # kubernetes tags are MANDATORY for EKS to find and use these subnets
 resource "aws_subnet" "public" {
-  count = length(var.public_subnet_cidrs)
+  for_each = local.public_subnet_map
 
   vpc_id                  = aws_vpc.this.id
-  cidr_block              = var.public_subnet_cidrs[count.index]
-  availability_zone       = var.availability_zones[count.index]
+  cidr_block              = each.key
+  availability_zone       = each.value
   map_public_ip_on_launch = true
 
   tags = merge(var.tags, {
-    Name                                             = "${local.name_prefix}-public-${var.availability_zones[count.index]}"
+    Name                                             = "${local.name_prefix}-public-${each.value}"
     "kubernetes.io/role/elb"                         = "1"
     "kubernetes.io/cluster/${local.name_prefix}-eks" = "shared"
   })
@@ -46,15 +58,16 @@ resource "aws_subnet" "public" {
 # --- Private Subnets ---
 # No public IP - resources here are hidden from internet
 # kubernetes tags are MANDATORY for EKS internal load balancers
+
 resource "aws_subnet" "private" {
-  count = length(var.private_subnet_cidrs)
+  for_each = local.private_subnet_map
 
   vpc_id            = aws_vpc.this.id
-  cidr_block        = var.private_subnet_cidrs[count.index]
-  availability_zone = var.availability_zones[count.index]
+  cidr_block        = each.key
+  availability_zone = each.value
 
   tags = merge(var.tags, {
-    Name                                             = "${local.name_prefix}-private-${var.availability_zones[count.index]}"
+    Name                                             = "${local.name_prefix}-private-${each.value}"
     "kubernetes.io/role/internal-elb"                = "1"
     "kubernetes.io/cluster/${local.name_prefix}-eks" = "shared"
   })
@@ -75,33 +88,34 @@ resource "aws_route_table" "public" {
   })
 }
 
-# Associate public subnets with public route table
+# Associate each public subnet with the public route table
 resource "aws_route_table_association" "public" {
-  count = length(aws_subnet.public)
+  for_each = local.public_subnet_map
 
-  subnet_id      = aws_subnet.public[count.index].id
+  subnet_id      = aws_subnet.public[each.key].id
   route_table_id = aws_route_table.public.id
 }
 
 # --- NAT Gateway (One Way Door for Private Subnets) ---
-# dev = 1 NAT Gateway, prod = 1 per AZ for resilience
+# Elastic IP for each NAT Gateway
 resource "aws_eip" "nat" {
-  count  = var.enable_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.availability_zones)) : 0
-  domain = "vpc"
+  for_each = local.nat_gateway_map
+  domain   = "vpc"
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-nat-eip-${count.index}"
+    Name = "${local.name_prefix}-nat-eip-${each.key}"
   })
 }
 
+# NAT Gateway - single in dev, one per AZ in prod
 resource "aws_nat_gateway" "this" {
-  count = var.enable_nat_gateway ? (var.single_nat_gateway ? 1 : length(var.availability_zones)) : 0
+  for_each = local.nat_gateway_map
 
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = aws_subnet.public[each.value].id
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-natgw-${count.index}"
+    Name = "${local.name_prefix}-natgw-${each.key}"
   })
 
   # Must wait for internet gateway before creating NAT
@@ -109,31 +123,31 @@ resource "aws_nat_gateway" "this" {
 }
 
 # --- Private Route Tables ---
-# One route table per private subnet
+# One route table per private subnet - for_each gives each a stable identity
 resource "aws_route_table" "private" {
-  count  = length(var.private_subnet_cidrs)
-  vpc_id = aws_vpc.this.id
+  for_each = local.private_subnet_map
+  vpc_id   = aws_vpc.this.id
 
   tags = merge(var.tags, {
-    Name = "${local.name_prefix}-private-rt-${count.index}"
+    Name = "${local.name_prefix}-private-rt-${each.value}"
   })
 }
 
 # Route private subnet traffic through NAT Gateway
 resource "aws_route" "private_nat" {
-  count = var.enable_nat_gateway ? length(var.private_subnet_cidrs) : 0
+  for_each = var.enable_nat_gateway ? local.private_subnet_map : {}
 
-  route_table_id         = aws_route_table.private[count.index].id
+  route_table_id         = aws_route_table.private[each.key].id
   destination_cidr_block = "0.0.0.0/0"
 
-  # single NAT = always use index 0, multiple NATs = use matching index
-  nat_gateway_id = var.single_nat_gateway ? aws_nat_gateway.this[0].id : aws_nat_gateway.this[count.index].id
+  # single NAT = always use "single" key, multiple NATs = use matching AZ
+  nat_gateway_id = var.single_nat_gateway ? aws_nat_gateway.this["single"].id : aws_nat_gateway.this[each.value].id
 }
 
-# Associate private subnets with private route tables
+# Associate each private subnet with its own route table
 resource "aws_route_table_association" "private" {
-  count = length(aws_subnet.private)
+  for_each = local.private_subnet_map
 
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private[count.index].id
+  subnet_id      = aws_subnet.private[each.key].id
+  route_table_id = aws_route_table.private[each.key].id
 }
