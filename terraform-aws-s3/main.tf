@@ -1,39 +1,39 @@
-# --- locals block(reusable) ---
 locals {
-  bucket_name = "teleios-${var.project_name}-${var.environment}-${var.bucket_purpose}"
+  name_prefix = "${var.project_name}-${var.environment}"
 }
 
+# --- S3 Buckets ---
+resource "aws_s3_bucket" "this" {
+  for_each = toset(var.bucket_names)
 
-# --- S3 Bucket Resource ---
-
-resource "aws_s3_bucket" "main" {
-  bucket        = local.bucket_name
+  bucket        = "teleios-${local.name_prefix}-${each.key}"
   force_destroy = var.force_destroy
 
   tags = merge(var.tags, {
-    Name        = local.bucket_name
+    Name        = "teleios-${local.name_prefix}-${each.key}"
     Environment = var.environment
     Project     = var.project_name
-    Purpose     = var.bucket_purpose
+    Purpose     = each.key
     ManagedBy   = "terraform"
   })
 }
 
 # --- Versioning ---
+resource "aws_s3_bucket_versioning" "this" {
+  for_each = toset(var.bucket_names)
 
-resource "aws_s3_bucket_versioning" "main" {
-  bucket = aws_s3_bucket.main.id
+  bucket = aws_s3_bucket.this[each.key].id
 
   versioning_configuration {
     status = var.enable_versioning ? "Enabled" : "Suspended"
   }
 }
 
-
 # --- Encryption ---
+resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+  for_each = toset(var.bucket_names)
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "main" {
-  bucket = aws_s3_bucket.main.id
+  bucket = aws_s3_bucket.this[each.key].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -42,15 +42,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "main" {
   }
 }
 
-
 # --- Lifecycle Policy ---
+resource "aws_s3_bucket_lifecycle_configuration" "this" {
+  for_each = var.lifecycle_expiration_days > 0 ? toset(var.bucket_names) : toset([])
 
-resource "aws_s3_bucket_lifecycle_configuration" "main" {
-  count  = var.lifecycle_expiration_days > 0 ? 1 : 0
-  bucket = aws_s3_bucket.main.id
+  bucket = aws_s3_bucket.this[each.key].id
 
   rule {
-    id     = "expire-objects"
+    id     = "expire-objects-${each.key}"
     status = "Enabled"
 
     expiration {
@@ -58,7 +57,3 @@ resource "aws_s3_bucket_lifecycle_configuration" "main" {
     }
   }
 }
-
-
-
-
