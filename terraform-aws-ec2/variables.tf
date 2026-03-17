@@ -45,7 +45,6 @@ variable "key_name" {
 }
 
 # --- Auto Scaling Configuration ---
-# Controls how many servers run at any given time
 variable "min_size" {
   description = "Minimum number of instances in ASG"
   type        = number
@@ -69,4 +68,41 @@ variable "tags" {
   description = "Additional tags"
   type        = map(string)
   default     = {}
+}
+
+# --- Security Group Ingress Rules ---
+# Replaces hardcoded inline ingress blocks — each rule is a named map entry
+# so for_each can manage them individually without touching the whole SG.
+variable "ingress_rules" {
+  description = "Map of ingress rules for the EC2 security group"
+  type = map(object({
+    description = string
+    from_port   = number
+    to_port     = number
+    protocol    = string
+    cidr_blocks = list(string)
+  }))
+  default = {
+    http = {
+      description = "Allow HTTP"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+    https = {
+      description = "Allow HTTPS"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+    ssh = {
+      description = "Allow SSH"
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
 }

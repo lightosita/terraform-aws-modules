@@ -1,13 +1,20 @@
-# --- Locals (Reusable computed names) ---
-# DRY principle - define once, use everywhere
+# --- Locals ---
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+
+  # Resolve AMI: prefer explicit var, fall back to data source
+  # for_each on the data source uses a set — stable, no index shifting
+  ami = var.ami_id != "" ? var.ami_id : data.aws_ami.amazon_linux["latest"].id
+
+  # Resource types to tag in the launch template
+  tag_resource_types = toset(["instance", "volume"])
 }
 
 # --- Get Latest Amazon Linux 2023 AMI ---
-# Only fetches if no AMI ID is provided - dynamic and always up to date
+# for_each with a single-item set is preferred over count = 0/1
+# because it avoids index-based references like [0] which break on plan/apply
 data "aws_ami" "amazon_linux" {
-  count       = var.ami_id == "" ? 1 : 0
+  for_each    = var.ami_id == "" ? toset(["latest"]) : toset([])
   most_recent = true
   owners      = ["amazon"]
 
@@ -22,86 +29,75 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# --- AMI Selection ---
-# Uses provided AMI ID or falls back to latest Amazon Linux 2023
-locals {
-  ami = var.ami_id != "" ? var.ami_id : data.aws_ami.amazon_linux[0].id
-}
-
-# --- Security Group (EC2 Firewall) ---
-# Controls who can talk to the EC2 instances
+# --- Security Group ---
+# Shell only — rules are managed as separate resources below
+# This avoids the "in-place update deletes all rules" problem with inline blocks
 resource "aws_security_group" "ec2" {
   name_prefix = "${local.name_prefix}-ec2-"
   description = "Security group for EC2 instances"
   vpc_id      = var.vpc_id
 
-  # Allow HTTP traffic from anywhere
-  ingress {
-    description = "Allow HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Allow HTTPS traffic from anywhere
-  ingress {
-    description = "Allow HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Allow SSH for direct server access
-  ingress {
-    description = "Allow SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Allow all outbound traffic
-  egress {
-    description = "Allow all outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = merge(var.tags, {
     Name = "${local.name_prefix}-ec2-sg"
   })
 
-  # Create new before destroying old - zero downtime
   lifecycle {
     create_before_destroy = true
   }
 }
 
+# --- Ingress Rules (for_each over var.ingress_rules) ---
+# Each rule is an independent resource keyed by name (e.g. "http", "ssh")
+# You can add/remove a single rule without touching the security group or other rules
+resource "aws_vpc_security_group_ingress_rule" "ec2" {
+  for_each = var.ingress_rules
+
+  security_group_id = aws_security_group.ec2.id
+  description       = each.value.description
+  from_port         = each.value.from_port
+  to_port           = each.value.to_port
+  ip_protocol       = each.value.protocol
+  cidr_ipv4         = each.value.cidr_blocks[0]
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-ingress-${each.key}"
+  })
+}
+
+# --- Egress Rule ---
+# Single egress rule as its own resource — consistent with ingress approach
+resource "aws_vpc_security_group_egress_rule" "ec2_all" {
+  security_group_id = aws_security_group.ec2.id
+  description       = "Allow all outbound"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = merge(var.tags, {
+    Name = "${local.name_prefix}-egress-all"
+  })
+}
+
 # --- Launch Template ---
-# Blueprint for every EC2 instance the ASG creates
 resource "aws_launch_template" "this" {
   name_prefix   = "${local.name_prefix}-web-"
   image_id      = local.ami
   instance_type = var.instance_type
-
-  # Only attach key pair if provided
-  key_name = var.key_name != "" ? var.key_name : null
+  key_name      = var.key_name != "" ? var.key_name : null
 
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
-  tag_specifications {
-    resource_type = "instance"
-    tags = merge(var.tags, {
-      Name = "${local.name_prefix}-web"
-    })
+  # for_each via dynamic block — iterate over instance/volume tag resource types
+  # Makes it trivial to add "spot-instance-request", "network-interface", etc. later
+  dynamic "tag_specifications" {
+    for_each = local.tag_resource_types
+    content {
+      resource_type = tag_specifications.value
+      tags = merge(var.tags, {
+        Name = "${local.name_prefix}-web"
+      })
+    }
   }
 
-  # --- User Data (Startup Script) ---
-  # Runs automatically when each server starts
   user_data = base64encode(<<-EOF
     #!/bin/bash
     yum update -y
@@ -118,7 +114,6 @@ resource "aws_launch_template" "this" {
 }
 
 # --- Auto Scaling Group ---
-# Automatically manages the number of EC2 instances based on demand
 resource "aws_autoscaling_group" "this" {
   name                = "${local.name_prefix}-asg"
   vpc_zone_identifier = var.private_subnet_ids
@@ -126,20 +121,17 @@ resource "aws_autoscaling_group" "this" {
   min_size            = var.min_size
   max_size            = var.max_size
 
-  # Always use latest version of launch template
   launch_template {
     id      = aws_launch_template.this.id
     version = "$Latest"
   }
 
-  # Tag every instance the ASG creates
   tag {
     key                 = "Name"
     value               = "${local.name_prefix}-web"
     propagate_at_launch = true
   }
 
-  # Dynamically apply all extra tags to instances
   dynamic "tag" {
     for_each = var.tags
     content {

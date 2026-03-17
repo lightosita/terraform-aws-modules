@@ -6,15 +6,30 @@ output "security_group_id" {
 }
 
 # --- Launch Template ID ---
-# referenced to create additional instances outside the ASG
+# Referenced to create additional instances outside the ASG
 output "launch_template_id" {
   description = "Launch template ID"
   value       = aws_launch_template.this.id
 }
 
+# --- Launch Template Latest Version ---
+# Useful when referencing the template outside this module
+output "launch_template_latest_version" {
+  description = "Latest version number of the launch template"
+  value       = aws_launch_template.this.latest_version
+}
+
 # --- Auto Scaling Group Name ---
-# monitoring and scaling policies
+# Used for monitoring and scaling policies
 output "autoscaling_group_name" {
   description = "Name of the Auto Scaling Group"
   value       = aws_autoscaling_group.this.name
+}
+
+# --- Ingress Rule IDs ---
+# Exposes each named ingress rule ID, keyed by rule name (e.g. "http", "ssh")
+# Useful for cross-module references or debugging specific rules
+output "ingress_rule_ids" {
+  description = "Map of ingress rule IDs keyed by rule name"
+  value       = { for k, v in aws_vpc_security_group_ingress_rule.ec2 : k => v.id }
 }

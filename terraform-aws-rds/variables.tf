@@ -88,3 +88,16 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# --- RDS Ingress Rules ---
+variable "rds_ingress_rules" {
+  description = "Map of ingress rules for the RDS security group"
+  type = map(object({
+    description = string
+    from_port   = number
+    to_port     = number
+    protocol    = string
+    cidr_blocks = optional(list(string))
+  }))
+  default = null
+}

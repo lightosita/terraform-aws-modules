@@ -14,19 +14,19 @@ variable "environment" {
   }
 }
 
-# --- Network Inputs (from VPC module outputs) ---
+# --- Network Inputs ---
 variable "vpc_id" {
-  description = "VPC ID where EKS will be deployed (from VPC module output)"
+  description = "VPC ID where EKS will be deployed"
   type        = string
 }
 
 variable "private_subnet_ids" {
-  description = "Private subnet IDs for EKS nodes (from VPC module output)"
+  description = "Private subnet IDs for EKS nodes"
   type        = list(string)
 }
 
 variable "public_subnet_ids" {
-  description = "Public subnet IDs for ALB (from VPC module output)"
+  description = "Public subnet IDs for ALB"
   type        = list(string)
 }
 
@@ -38,7 +38,6 @@ variable "kubernetes_version" {
 }
 
 # --- Node Group Configuration ---
-# Worker nodes are the actual servers that run your containers
 variable "node_instance_types" {
   description = "EC2 instance types for the managed node group"
   type        = list(string)
@@ -74,4 +73,77 @@ variable "tags" {
   description = "Additional tags to apply to all resources"
   type        = map(string)
   default     = {}
+}
+
+# --- Cluster IAM Policies ---
+# Drives for_each on aws_iam_role_policy_attachment for the cluster role
+# Add or remove policies here without touching resource blocks
+variable "cluster_iam_policies" {
+  description = "Map of IAM policies to attach to the EKS cluster role"
+  type        = map(string)
+  default = {
+    cluster_policy          = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+    vpc_resource_controller = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+  }
+}
+
+# --- Node IAM Policies ---
+# Drives for_each on aws_iam_role_policy_attachment for the node role
+variable "node_iam_policies" {
+  description = "Map of IAM policies to attach to the EKS node role"
+  type        = map(string)
+  default = {
+    worker_node_policy = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+    cni_policy         = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+    ecr_read_only      = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  }
+}
+
+# --- Cluster Security Group Ingress Rules ---
+variable "cluster_ingress_rules" {
+  description = "Map of ingress rules for the EKS cluster control plane security group"
+  type = map(object({
+    description = string
+    from_port   = number
+    to_port     = number
+    protocol    = string
+    cidr_blocks = optional(list(string))
+  }))
+  default = {
+    https = {
+      description = "Allow HTTPS from within VPC"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+}
+
+# --- ALB Security Group Ingress Rules ---
+variable "alb_ingress_rules" {
+  description = "Map of ingress rules for the ALB security group"
+  type = map(object({
+    description = string
+    from_port   = number
+    to_port     = number
+    protocol    = string
+    cidr_blocks = optional(list(string))
+  }))
+  default = {
+    http = {
+      description = "Allow HTTP"
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+    https = {
+      description = "Allow HTTPS"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
 }
