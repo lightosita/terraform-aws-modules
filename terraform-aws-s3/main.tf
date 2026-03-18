@@ -49,7 +49,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   bucket = aws_s3_bucket.this[each.key].id
 
   rule {
-    id     = "expire-objects-${each.key}"
+    id = "expire-objects-${each.key}"
+    filter {}
     status = "Enabled"
 
     expiration {
