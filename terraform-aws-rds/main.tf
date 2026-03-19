@@ -74,7 +74,7 @@ resource "aws_vpc_security_group_egress_rule" "rds_all" {
 resource "aws_db_instance" "this" {
   identifier     = "${local.name_prefix}-rds"
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "15.10"
   instance_class = var.instance_class
 
   # --- Storage ---
