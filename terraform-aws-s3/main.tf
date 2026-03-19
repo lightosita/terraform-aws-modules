@@ -6,11 +6,11 @@ locals {
 resource "aws_s3_bucket" "this" {
   for_each = toset(var.bucket_names)
 
-  bucket        = "teleios-${local.name_prefix}-${each.key}"
+  bucket        = "${local.name_prefix}-${each.key}"
   force_destroy = var.force_destroy
 
   tags = merge(var.tags, {
-    Name        = "teleios-${local.name_prefix}-${each.key}"
+    Name        = "${local.name_prefix}-${each.key}"
     Environment = var.environment
     Project     = var.project_name
     Purpose     = each.key
