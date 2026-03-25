@@ -20,15 +20,18 @@ variable "vpc_id" {
   type        = string
 }
 
+
 variable "private_subnet_ids" {
   description = "Private subnet IDs for EKS nodes"
   type        = list(string)
 }
 
+
 variable "public_subnet_ids" {
   description = "Public subnet IDs for ALB"
   type        = list(string)
 }
+
 
 # --- EKS Cluster Configuration ---
 variable "kubernetes_version" {
@@ -76,8 +79,7 @@ variable "tags" {
 }
 
 # --- Cluster IAM Policies ---
-# Drives for_each on aws_iam_role_policy_attachment for the cluster role
-# Add or remove policies here without touching resource blocks
+
 variable "cluster_iam_policies" {
   description = "Map of IAM policies to attach to the EKS cluster role"
   type        = map(string)
@@ -147,3 +149,15 @@ variable "alb_ingress_rules" {
     }
   }
 }
+
+# --- EKS Access Control (aws-auth) ---
+variable "eks_admin_users" {
+  description = "IAM users to grant admin access to EKS cluster"
+  type = list(object({
+    userarn  = string
+    username = string
+    groups   = list(string)
+  }))
+  default = []
+}
+
