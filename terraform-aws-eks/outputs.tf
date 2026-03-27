@@ -8,7 +8,7 @@ output "cluster_endpoint" {
   value       = aws_eks_cluster.this.endpoint
 }
 
-output "cluster_certificate_authority" {
+output "cluster_ca_certificate" {
   description = "Cluster CA certificate for authentication"
   value       = aws_eks_cluster.this.certificate_authority[0].data
 }

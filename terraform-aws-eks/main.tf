@@ -277,3 +277,35 @@ resource "aws_lb" "this" {
   })
 }
 
+# ============================================================
+# AWS AUTH CONFIGMAP — grants IAM users/roles cluster access
+# ============================================================
+
+resource "kubernetes_config_map_v1_data" "aws_auth" {
+  metadata {
+    name      = "aws-auth"
+    namespace = "kube-system"
+  }
+
+  data = {
+    mapRoles = yamlencode([
+      {
+        rolearn  = aws_iam_role.node.arn
+        username = "system:node:{{EC2PrivateDNSName}}"
+        groups   = ["system:bootstrappers", "system:nodes"]
+      }
+    ])
+
+    mapUsers = yamlencode([
+      {
+        userarn  = "arn:aws:iam::221693237976:user/Light"
+        username = "Light"
+        groups   = ["system:masters"]
+      }
+    ])
+  }
+
+  force = true
+
+  depends_on = [aws_eks_cluster.this]
+}
